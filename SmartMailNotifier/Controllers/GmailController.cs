@@ -1,0 +1,217 @@
+﻿using Google.Apis.Auth;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SmartMailNotifier.Data;
+using SmartMailNotifier.Models;
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text.Json;
+
+namespace SmartMailNotifier.Controllers
+{
+
+    [Route("api/[controller]")]
+    [ApiController]
+    public class GmailController : ControllerBase
+    {
+        private readonly IConfiguration _config;
+        private readonly AppDbContext _context;
+
+        public GmailController(IConfiguration config, AppDbContext context)
+        {
+            _config = config;
+            _context = context;
+        }
+
+        // ================= GET USER FROM JWT =================
+        private int? GetAuthenticatedUserId()
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                              ?? User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                              ?? User.FindFirst("sub")?.Value;
+
+            if (int.TryParse(userIdClaim, out var id))
+                return id;
+
+            return null;
+        }
+
+        // ================= CONNECT GMAIL =================
+
+        [HttpGet("connect")]
+        public IActionResult Connect()
+        {
+            // 🔥 TEMP: hardcode user id for testing
+            int userId = 1;
+
+            var clientId = _config["Gmail:ClientId"];
+            var redirectUri = _config["Gmail:RedirectUri"];
+
+            var url = "https://accounts.google.com/o/oauth2/v2/auth" +
+                      "?client_id=" + clientId +
+                      "&redirect_uri=" + redirectUri +
+                      "&response_type=code" +
+                      "&scope=" +
+                      "https://www.googleapis.com/auth/gmail.readonly%20" +
+                      "https://www.googleapis.com/auth/userinfo.email%20" +
+                      "openid" +
+                      "&access_type=offline" +
+                      "&prompt=consent" +
+                      "&state=" + userId;  // send userid in state
+
+            return Redirect(url);
+        }
+        // ================= CALLBACK =================
+        [HttpGet("callback")]
+        public async Task<IActionResult> Callback(string code, string state)
+        {
+            if (string.IsNullOrEmpty(code))
+                return BadRequest("Authorization code not received.");
+
+            // 🔥 get userid from state
+            if (!int.TryParse(state, out int userId))
+                return Unauthorized("Invalid state. User not found.");
+
+            var clientId = _config["Gmail:ClientId"];
+            var clientSecret = _config["Gmail:ClientSecret"];
+            var redirectUri = _config["Gmail:RedirectUri"];
+
+            var tokenRequest = new Dictionary<string, string>
+            {
+                { "code", code },
+                { "client_id", clientId ?? "" },
+                { "client_secret", clientSecret ?? "" },
+                { "redirect_uri", redirectUri ?? "" },
+                { "grant_type", "authorization_code" }
+            };
+
+            using var httpClient = new HttpClient();
+
+            var tokenResponse = await httpClient.PostAsync(
+                "https://oauth2.googleapis.com/token",
+                new FormUrlEncodedContent(tokenRequest));
+
+            var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
+
+            if (!tokenResponse.IsSuccessStatusCode)
+                return BadRequest(tokenJson);
+
+            var tokenData = JsonSerializer.Deserialize<JsonElement>(tokenJson);
+
+            if (!tokenData.TryGetProperty("access_token", out var accessTokenEl) ||
+                !tokenData.TryGetProperty("id_token", out var idTokenEl))
+            {
+                return BadRequest("Token response missing tokens");
+            }
+
+            string accessToken = accessTokenEl.GetString() ?? "";
+            string idToken = idTokenEl.GetString() ?? "";
+
+            string refreshToken = "";
+            if (tokenData.TryGetProperty("refresh_token", out var refreshTokenElement))
+                refreshToken = refreshTokenElement.GetString() ?? "";
+
+            // ================= GET GMAIL ADDRESS =================
+            var payload = await GoogleJsonWebSignature.ValidateAsync(idToken);
+            string gmailAddress = payload.Email ?? "";
+
+            // ================= SAVE TOKEN =================
+            if (!string.IsNullOrEmpty(refreshToken))
+            {
+                var existing = _context.GmailRefreshTokens
+                    .FirstOrDefault(x => x.UserId == userId && x.GmailAddress == gmailAddress);
+
+                if (existing == null)
+                {
+                    var gmail = new GmailRefreshToken
+                    {
+                        UserId = userId,
+                        GmailAddress = gmailAddress,
+                        RefreshToken = refreshToken,
+                        IsActive = true
+                    };
+
+                    _context.GmailRefreshTokens.Add(gmail);
+                }
+                else
+                {
+                    existing.RefreshToken = refreshToken;
+                    existing.IsActive = true;
+                }
+
+                await _context.SaveChangesAsync();
+            }
+
+            // ================= FETCH EMAILS =================
+            httpClient.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var gmailResponse = await httpClient.GetAsync(
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5");
+
+            if (!gmailResponse.IsSuccessStatusCode)
+                return BadRequest(await gmailResponse.Content.ReadAsStringAsync());
+
+            var emailsJson = await gmailResponse.Content.ReadAsStringAsync();
+            var messageList = JsonSerializer.Deserialize<JsonElement>(emailsJson);
+
+            if (!messageList.TryGetProperty("messages", out var messages))
+                return Ok($"Gmail {gmailAddress} connected but no emails");
+
+            foreach (var msg in messages.EnumerateArray())
+            {
+                var messageId = msg.GetProperty("id").GetString();
+                if (string.IsNullOrEmpty(messageId))
+                    continue;
+
+                if (_context.Emails.Any(e => e.MessageId == messageId))
+                    continue;
+
+                var fullMsg = await httpClient.GetStringAsync(
+                    $"https://gmail.googleapis.com/gmail/v1/users/me/messages/{messageId}");
+
+                var emailData = JsonSerializer.Deserialize<JsonElement>(fullMsg);
+                var payloadData = emailData.GetProperty("payload");
+                var headers = payloadData.GetProperty("headers");
+
+                string subject = "No Subject";
+                string from = "Unknown Sender";
+
+                foreach (var h in headers.EnumerateArray())
+                {
+                    var name = h.GetProperty("name").GetString();
+
+                    if (name == "Subject")
+                        subject = h.GetProperty("value").GetString() ?? "No Subject";
+
+                    if (name == "From")
+                        from = h.GetProperty("value").GetString() ?? "Unknown Sender";
+                }
+
+                string isImportant =
+                    subject.ToLower().Contains("job") ||
+                    subject.ToLower().Contains("interview") ||
+                    subject.ToLower().Contains("offer")
+                    ? "Yes" : "No";
+
+                var email = new Email
+                {
+                    MessageId = messageId,
+                    Subject = subject,
+                    Sender = from,
+                    Summary = $"Mail from {from} about {subject}",
+                    IsImportant = isImportant,
+                    UserId = userId,
+                    GmailAddress = gmailAddress
+                };
+
+                _context.Emails.Add(email);
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok($"Gmail {gmailAddress} connected successfully");
+        }
+    }
+}
