@@ -96,10 +96,11 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<JwtHelper>();
 builder.Services.AddScoped<IEmailRepository, EmailRepository>();
 builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddScoped<GmailService>();
+builder.Services.AddHttpClient<GmailService>();
 builder.Services.AddHostedService<EmailBackgroundService>();
 builder.Services.AddScoped<AiService>();
 builder.Services.AddScoped<WhatsAppService>();
+builder.Services.AddScoped<SendEmailService>();
 
 var app = builder.Build();
 
