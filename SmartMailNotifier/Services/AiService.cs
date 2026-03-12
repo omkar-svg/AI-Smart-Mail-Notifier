@@ -1,11 +1,20 @@
-﻿using System.Text.RegularExpressions;
-using System.Linq;
+﻿using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SmartMailNotifier.Services
 {
     public class AiService
     {
-        public string GetSummary(string subject, string body)
+        private readonly IConfiguration _config;
+
+        public AiService(IConfiguration config)
+        {
+            _config = config;
+        }
+
+        public async Task<string> GetSummary(string subject, string body)
         {
             if (string.IsNullOrWhiteSpace(subject) && string.IsNullOrWhiteSpace(body))
                 return "New email received.";
@@ -13,47 +22,82 @@ namespace SmartMailNotifier.Services
             body = CleanHtml(body);
             body = RemoveReplyChain(body);
 
-            if (body.Length > 3000)
-                body = body.Substring(0, 3000);
+            if (body.Length > 4000)
+                body = body.Substring(0, 4000);
 
-            var sentences = Regex
-                .Split(body, @"(?<=[\.!\?])\s+")
-                .Where(s => s.Length > 20)
-                .ToList();
+            var apiKey = _config["Groq:ApiKey"];
 
-            if (!sentences.Any())
-                return subject ?? "New email received.";
-
-            var importantWords = new[]
+            try
             {
-                "interview","meeting","deadline","offer",
-                "exam","payment","invoice","scheduled",
-                "tomorrow","today","zoom","teams",
-                "google","date","time","joining","credited","debited","internship"
-            };
+                using var http = new HttpClient();
 
-            var ranked = sentences
-                .Select(s => new
+                http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", apiKey);
+
+                var prompt = $"""
+You are an assistant that summarizes emails.
+
+Rules:
+- Write one clear sentence.
+- Do NOT repeat the subject.
+- Focus on the key action or event.
+- If a date/time exists include it.
+
+Subject:
+{subject}
+
+Email Body:
+{body}
+
+Summary:
+""";
+
+                var request = new
                 {
-                    Sentence = s.Trim(),
-                    Score = importantWords.Count(w => s.ToLower().Contains(w))
-                })
-                .OrderByDescending(x => x.Score)
-                .ThenByDescending(x => x.Sentence.Length)
-                .First();
+                    model = "llama-3.1-8b-instant",   // safer free model
+                    messages = new[]
+                    {
+                        new { role = "user", content = prompt }
+                    },
+                    temperature = 0.3
+                };
 
-            string summary = ranked.Sentence;
+                var json = JsonSerializer.Serialize(request);
 
-            // Extract date/time if not already included
-            string dateInfo = ExtractDateTime(body);
+                var response = await http.PostAsync(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    new StringContent(json, Encoding.UTF8, "application/json")
+                );
 
-            if (!string.IsNullOrEmpty(dateInfo) && !summary.ToLower().Contains(dateInfo.ToLower()))
-                summary += " " + dateInfo;
+                var result = await response.Content.ReadAsStringAsync();
 
-            if (summary.Length > 180)
-                summary = summary.Substring(0, 180) + "...";
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("Groq API error: " + result);
+                    return subject ?? "New email received.";
+                }
 
-            return summary;
+                var doc = JsonDocument.Parse(result);
+
+                var summary = doc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+
+                if (string.IsNullOrWhiteSpace(summary))
+                    return subject ?? "New email received.";
+
+                if (summary.Length > 180)
+                    summary = summary.Substring(0, 180) + "...";
+
+                return summary;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("AI summarization error: " + ex.Message);
+                return subject ?? "New email received.";
+            }
         }
 
         private string CleanHtml(string input)
@@ -67,25 +111,82 @@ namespace SmartMailNotifier.Services
             var split = Regex.Split(body, @"On .* wrote:|From:|-----Original Message-----", RegexOptions.IgnoreCase);
             return split[0];
         }
+    
 
-        private string ExtractDateTime(string body)
+
+     public async Task<string> GenerateEmailBody(string sentence)
         {
-            if (string.IsNullOrEmpty(body)) return "";
+            if (string.IsNullOrWhiteSpace(sentence))
+                return "Please provide details for the email.";
 
-            string lower = body.ToLower();
+            var apiKey = _config["Groq:ApiKey"];
 
-            if (lower.Contains("tomorrow")) return "tomorrow";
-            if (lower.Contains("today")) return "today";
+            try
+            {
+                using var http = new HttpClient();
 
-            var timeMatch = Regex.Match(body, @"\b\d{1,2}:\d{2}\s?(AM|PM|am|pm)\b");
-            if (timeMatch.Success)
-                return "at " + timeMatch.Value;
+                http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", apiKey);
 
-            var dateMatch = Regex.Match(body, @"\b\d{1,2}\s?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s?\d{0,4}\b", RegexOptions.IgnoreCase);
-            if (dateMatch.Success)
-                return "on " + dateMatch.Value;
+                var prompt = $"""
+You are an assistant that writes professional email messages.
 
-            return "";
+Task:
+Convert the following request into a short professional email body.
+
+Rules:
+- Write 4–6 lines.
+- Be polite and professional.
+- Do not include subject.
+- Do not include email address.
+
+Request:
+{sentence}
+
+Email Body:
+""";
+
+                var request = new
+                {
+                    model = "llama-3.1-8b-instant",
+                    messages = new[]
+                    {
+                        new { role = "user", content = prompt }
+                    },
+                    temperature = 0.4
+                };
+
+                var json = JsonSerializer.Serialize(request);
+
+                var response = await http.PostAsync(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    new StringContent(json, Encoding.UTF8, "application/json")
+                );
+
+                var result = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("Groq API error: " + result);
+                    return sentence;
+                }
+
+                var doc = JsonDocument.Parse(result);
+
+                var emailBody = doc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+
+                return emailBody ?? sentence;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Email generation error: " + ex.Message);
+                return sentence;
+            }
         }
+      }
+
     }
-}

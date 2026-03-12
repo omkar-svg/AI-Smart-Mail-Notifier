@@ -34,7 +34,7 @@ namespace SmartMailNotifier.Services.Background
                     Console.WriteLine("BACKGROUND ERROR: " + ex.Message);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
             }
         }
 
@@ -111,10 +111,10 @@ namespace SmartMailNotifier.Services.Background
                             from = h.GetProperty("value").GetString() ?? "Unknown Sender";
                     }
 
-                  
+
 
                     // 🔥 AI summary
-                    string summary = aiService.GetSummary(subject, body);
+                    string summary = await aiService.GetSummary(subject, body);
 
                     bool isImportant =
                         subject.ToLower().Contains("job") ||

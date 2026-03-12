@@ -1,0 +1,25 @@
+## Ignore Visual Studio temporary files
+.vs/
+bin/
+obj/
+
+## User-specific files
+*.user
+*.suo
+
+## Build results
+Debug/
+Release/
+
+## ASP.NET Core
+appsettings.Development.json
+
+## Rider
+.idea/
+
+## Logs
+*.log
+
+## OS files
+.DS_Store
+Thumbs.db

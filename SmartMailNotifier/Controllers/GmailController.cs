@@ -1,5 +1,4 @@
 ﻿using Google.Apis.Auth;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartMailNotifier.Data;
 using SmartMailNotifier.Models;
@@ -10,7 +9,6 @@ using System.Text.Json;
 
 namespace SmartMailNotifier.Controllers
 {
-
     [Route("api/[controller]")]
     [ApiController]
     public class GmailController : ControllerBase
@@ -38,12 +36,10 @@ namespace SmartMailNotifier.Controllers
         }
 
         // ================= CONNECT GMAIL =================
-
         [HttpGet("connect")]
         public IActionResult Connect()
         {
-            // 🔥 TEMP: hardcode user id for testing
-            int userId = 1;
+            int userId = 1; // temporary hardcoded user
 
             var clientId = _config["Gmail:ClientId"];
             var redirectUri = _config["Gmail:RedirectUri"];
@@ -54,14 +50,16 @@ namespace SmartMailNotifier.Controllers
                       "&response_type=code" +
                       "&scope=" +
                       "https://www.googleapis.com/auth/gmail.readonly%20" +
+                      "https://www.googleapis.com/auth/gmail.send%20" +
                       "https://www.googleapis.com/auth/userinfo.email%20" +
                       "openid" +
                       "&access_type=offline" +
                       "&prompt=consent" +
-                      "&state=" + userId;  // send userid in state
+                      "&state=" + userId;
 
             return Redirect(url);
         }
+
         // ================= CALLBACK =================
         [HttpGet("callback")]
         public async Task<IActionResult> Callback(string code, string state)
@@ -69,9 +67,8 @@ namespace SmartMailNotifier.Controllers
             if (string.IsNullOrEmpty(code))
                 return BadRequest("Authorization code not received.");
 
-            // 🔥 get userid from state
             if (!int.TryParse(state, out int userId))
-                return Unauthorized("Invalid state. User not found.");
+                return Unauthorized("Invalid state.");
 
             var clientId = _config["Gmail:ClientId"];
             var clientSecret = _config["Gmail:ClientSecret"];
@@ -99,24 +96,18 @@ namespace SmartMailNotifier.Controllers
 
             var tokenData = JsonSerializer.Deserialize<JsonElement>(tokenJson);
 
-            if (!tokenData.TryGetProperty("access_token", out var accessTokenEl) ||
-                !tokenData.TryGetProperty("id_token", out var idTokenEl))
-            {
-                return BadRequest("Token response missing tokens");
-            }
-
-            string accessToken = accessTokenEl.GetString() ?? "";
-            string idToken = idTokenEl.GetString() ?? "";
+            string accessToken = tokenData.GetProperty("access_token").GetString() ?? "";
+            string idToken = tokenData.GetProperty("id_token").GetString() ?? "";
 
             string refreshToken = "";
             if (tokenData.TryGetProperty("refresh_token", out var refreshTokenElement))
                 refreshToken = refreshTokenElement.GetString() ?? "";
 
-            // ================= GET GMAIL ADDRESS =================
+            // ================= GET USER EMAIL =================
             var payload = await GoogleJsonWebSignature.ValidateAsync(idToken);
             string gmailAddress = payload.Email ?? "";
 
-            // ================= SAVE TOKEN =================
+            // ================= SAVE REFRESH TOKEN =================
             if (!string.IsNullOrEmpty(refreshToken))
             {
                 var existing = _context.GmailRefreshTokens
