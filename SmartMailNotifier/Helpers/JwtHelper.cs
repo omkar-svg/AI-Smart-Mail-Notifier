@@ -1,8 +1,8 @@
 ﻿using Microsoft.IdentityModel.Tokens;
-using SmartMailNotifier.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using SmartMailNotifier.Models;
 
 namespace SmartMailNotifier.Helpers
 {
@@ -17,26 +17,24 @@ namespace SmartMailNotifier.Helpers
 
         public string GenerateToken(User user)
         {
+            var key = _config["JWT_KEY"];
+            var issuer = _config["JWT_ISSUER"];
+            var audience = _config["JWT_AUDIENCE"];
+
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
             var claims = new[]
             {
-                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new Claim(JwtRegisteredClaimNames.Email, user.Email),
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim("username", user.Name)
+                new Claim(ClaimTypes.Email, user.Email)
             };
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
-
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
             var token = new JwtSecurityToken(
-                issuer: _config["Jwt:Issuer"],
-                audience: _config["Jwt:Audience"],
-                claims: claims,
+                issuer,
+                audience,
+                claims,
                 expires: DateTime.Now.AddHours(2),
-                signingCredentials: creds
+                signingCredentials: credentials
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
