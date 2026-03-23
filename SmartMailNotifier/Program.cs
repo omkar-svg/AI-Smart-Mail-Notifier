@@ -102,6 +102,7 @@ builder.Services.AddScoped<AiService>();
 builder.Services.AddScoped<WhatsAppService>();
 builder.Services.AddScoped<SendEmailService>();
 
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

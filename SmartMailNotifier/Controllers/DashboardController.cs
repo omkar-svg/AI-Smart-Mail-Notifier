@@ -70,7 +70,7 @@ namespace SmartMailNotifier.Controllers
             string? whatsapp = _context.Users.Where(u => u.Id == userid).Select(u => u.WhatsappNumber).FirstOrDefault();
 
             List<GmailDto> ConnectedGemails = _context.GmailRefreshTokens
-                .Where(g => g.UserId == userid && g.IsActive)
+                .Where(g => g.UserId == userid )
                 .Select(g => new GmailDto
                 {
                     GmailAddress = g.GmailAddress,

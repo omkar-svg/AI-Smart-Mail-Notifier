@@ -1,17 +1,23 @@
-﻿using System.Net.Http.Headers;
+﻿using Microsoft.EntityFrameworkCore;
+using SmartMailNotifier.Data;
+using SmartMailNotifier.Models;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SmartMailNotifier.DTOs;
 
 namespace SmartMailNotifier.Services
 {
     public class AiService
     {
         private readonly IConfiguration _config;
+        private readonly AppDbContext _context;
 
-        public AiService(IConfiguration config)
+        public AiService(IConfiguration config, AppDbContext context)
         {
             _config = config;
+            _context = context;
         }
 
         public async Task<string> GetSummary(string subject, string body)
@@ -24,6 +30,7 @@ namespace SmartMailNotifier.Services
 
             if (body.Length > 4000)
                 body = body.Substring(0, 4000);
+            
 
             var apiKey = _config["Groq:ApiKey"];
 
@@ -111,13 +118,17 @@ Summary:
             var split = Regex.Split(body, @"On .* wrote:|From:|-----Original Message-----", RegexOptions.IgnoreCase);
             return split[0];
         }
-    
 
 
-     public async Task<string> GenerateEmailBody(string sentence)
+
+        public async Task<EmailResponse> GenerateEmailBody(string sentence, string whnum)
         {
             if (string.IsNullOrWhiteSpace(sentence))
-                return "Please provide details for the email.";
+                return new EmailResponse
+                {
+                    Subject = "No Subject",
+                    Body = "Please provide details for the email."
+                };
 
             var apiKey = _config["Groq:ApiKey"];
 
@@ -125,34 +136,41 @@ Summary:
             {
                 using var http = new HttpClient();
 
+                var user = _context.Users.FirstOrDefault(u => u.WhatsappNumber == whnum);
+                string senderName = user?.Name ?? "User";
+
                 http.DefaultRequestHeaders.Authorization =
                     new AuthenticationHeaderValue("Bearer", apiKey);
 
-                var prompt = $"""
+                var prompt = $@"
 You are an assistant that writes professional email messages.
 
 Task:
-Convert the following request into a short professional email body.
+Generate:
+1. Subject line
+2. Email body
 
 Rules:
-- Write 4–6 lines.
+- Email body should be 4–6 lines.
 - Be polite and professional.
-- Do not include subject.
-- Do not include email address.
+- Include sender name: {senderName}
+
+Return format:
+Subject: <subject line>
+Body:
+<email body>
 
 Request:
 {sentence}
-
-Email Body:
-""";
+";
 
                 var request = new
                 {
                     model = "llama-3.1-8b-instant",
                     messages = new[]
                     {
-                        new { role = "user", content = prompt }
-                    },
+                new { role = "user", content = prompt }
+            },
                     temperature = 0.4
                 };
 
@@ -168,25 +186,45 @@ Email Body:
                 if (!response.IsSuccessStatusCode)
                 {
                     Console.WriteLine("Groq API error: " + result);
-                    return sentence;
+                    return new EmailResponse { Subject = "Error", Body = sentence };
                 }
 
                 var doc = JsonDocument.Parse(result);
 
-                var emailBody = doc.RootElement
+                var content = doc.RootElement
                     .GetProperty("choices")[0]
                     .GetProperty("message")
                     .GetProperty("content")
                     .GetString();
 
-                return emailBody ?? sentence;
+                // ✅ Parse Subject + Body
+                string subject = "No Subject";
+                string body = content;
+
+                if (content.Contains("Subject:"))
+                {
+                    var parts = content.Split("Body:");
+
+                    subject = parts[0].Replace("Subject:", "").Trim();
+                    body = parts.Length > 1 ? parts[1].Trim() : content;
+                }
+
+                return new EmailResponse
+                {
+                    Subject = subject,
+                    Body = body
+                };
             }
             catch (Exception ex)
             {
                 Console.WriteLine("Email generation error: " + ex.Message);
-                return sentence;
+                return new EmailResponse
+                {
+                    Subject = "Error",
+                    Body = sentence
+                };
             }
         }
-      }
+    }
 
     }

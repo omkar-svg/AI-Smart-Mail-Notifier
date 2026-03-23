@@ -30,7 +30,15 @@ namespace SmartMailNotifier.Repository
         {
             return await _context.Emails.FirstOrDefaultAsync(e => e.Id == emailId && e.UserId == userId);
         }
+        public async Task<bool> ActivateEmail(string email)
+        {
+            var token = await _context.GmailRefreshTokens.FirstOrDefaultAsync(u => u.GmailAddress == email);
+            if (token == null)
+                return false;
+             token.IsActive = !token.IsActive;
+            await _context.SaveChangesAsync();
+            return true;
+        }
 
-
-       }     
+    }     
 }
