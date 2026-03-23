@@ -12,11 +12,12 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ✅ Add services
+// =========================
+// ✅ SERVICES
+// =========================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// ✅ Swagger with JWT
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
@@ -45,60 +46,37 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-
 // =========================
-// ✅ DATABASE CONFIG (FINAL FIX)
+// ✅ DATABASE (FINAL FIX)
 // =========================
 
-string connectionString = null;
-
-// 🔥 Priority 1: Railway MYSQL_PUBLIC_URL
 var dbUrl = Environment.GetEnvironmentVariable("MYSQL_PUBLIC_URL");
 
-if (!string.IsNullOrEmpty(dbUrl))
+if (string.IsNullOrEmpty(dbUrl))
 {
-    var uri = new Uri(dbUrl);
-    var userInfo = uri.UserInfo.Split(':');
-
-    connectionString = $"Server={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};User={userInfo[0]};Password={userInfo[1]};SslMode=Required;";
+    throw new Exception("MYSQL_PUBLIC_URL is missing in environment variables!");
 }
 
-// 🔥 Priority 2: Render DB_CONNECTION
-if (string.IsNullOrEmpty(connectionString))
-{
-    connectionString = Environment.GetEnvironmentVariable("DB_CONNECTION");
-}
+var uri = new Uri(dbUrl);
+var userInfo = uri.UserInfo.Split(':');
 
-// 🔥 Fallback: appsettings.json
-if (string.IsNullOrEmpty(connectionString))
-{
-    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-}
+var connectionString = $"Server={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};User={userInfo[0]};Password={userInfo[1]};SslMode=Required;";
 
-if (string.IsNullOrEmpty(connectionString))
-{
-    throw new Exception("Database connection string is missing!");
-}
-
-// ✅ NO AutoDetect (prevents crash)
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 32)))
 );
-
 
 // =========================
 // ✅ JWT CONFIG
 // =========================
 
-var jwtSection = builder.Configuration.GetSection("Jwt");
-
-var jwtKey = jwtSection["Key"] ?? Environment.GetEnvironmentVariable("JWT_KEY");
-var jwtIssuer = jwtSection["Issuer"] ?? Environment.GetEnvironmentVariable("JWT_ISSUER");
-var jwtAudience = jwtSection["Audience"] ?? Environment.GetEnvironmentVariable("JWT_AUDIENCE");
+var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
+var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER");
+var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE");
 
 if (string.IsNullOrEmpty(jwtKey))
 {
-    throw new Exception("JWT Key is missing!");
+    throw new Exception("JWT_KEY is missing!");
 }
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -126,7 +104,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-
 // =========================
 // ✅ CORS
 // =========================
@@ -144,9 +121,8 @@ builder.Services.AddCors(options =>
     });
 });
 
-
 // =========================
-// ✅ DEPENDENCY INJECTION
+// ✅ DEPENDENCIES
 // =========================
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -160,12 +136,10 @@ builder.Services.AddScoped<AiService>();
 builder.Services.AddScoped<WhatsAppService>();
 builder.Services.AddScoped<SendEmailService>();
 
-
 var app = builder.Build();
 
-
 // =========================
-// ✅ APPLY MIGRATIONS SAFELY
+// ✅ SAFE MIGRATION
 // =========================
 
 try
@@ -180,7 +154,6 @@ catch (Exception ex)
 {
     Console.WriteLine("Migration failed: " + ex.Message);
 }
-
 
 // =========================
 // ✅ MIDDLEWARE
@@ -200,7 +173,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
 
 // =========================
 // ✅ RENDER PORT FIX
