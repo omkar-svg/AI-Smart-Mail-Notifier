@@ -128,18 +128,15 @@ builder.Services.AddScoped<SendEmailService>();
 
 var app = builder.Build();
 
-// ✅ Swagger only in dev
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
 
 // ✅ Avoid HTTPS redirect issues on Render
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
+
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors("AllowReact");
 
