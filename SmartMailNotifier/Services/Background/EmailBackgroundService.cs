@@ -34,7 +34,7 @@ namespace SmartMailNotifier.Services.Background
                     Console.WriteLine("BACKGROUND ERROR: " + ex.Message);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
 
