@@ -128,6 +128,11 @@ builder.Services.AddScoped<SendEmailService>();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
 
 // ✅ Avoid HTTPS redirect issues on Render
 if (!app.Environment.IsDevelopment())
