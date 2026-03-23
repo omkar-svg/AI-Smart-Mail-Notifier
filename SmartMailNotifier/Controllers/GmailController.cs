@@ -41,8 +41,8 @@ namespace SmartMailNotifier.Controllers
         {
             int userId = 1; // temporary hardcoded user
 
-            var clientId = _config["Gmail:ClientId"];
-            var redirectUri = _config["Gmail:RedirectUri"];
+            var clientId = Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID");
+            var redirectUri = Environment.GetEnvironmentVariable("GMAIL_REDIRECT_URI");
 
             var url = "https://accounts.google.com/o/oauth2/v2/auth" +
                       "?client_id=" + clientId +
@@ -70,9 +70,14 @@ namespace SmartMailNotifier.Controllers
             if (!int.TryParse(state, out int userId))
                 return Unauthorized("Invalid state.");
 
-            var clientId = _config["Gmail:ClientId"];
-            var clientSecret = _config["Gmail:ClientSecret"];
-            var redirectUri = _config["Gmail:RedirectUri"];
+            var clientId = Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID")
+                 ?? _config["Gmail:ClientId"];
+
+            var clientSecret = Environment.GetEnvironmentVariable("GMAIL_CLIENT_SECRET")
+                               ?? _config["Gmail:ClientSecret"];
+
+            var redirectUri = Environment.GetEnvironmentVariable("GMAIL_REDIRECT_URI")
+                              ?? _config["Gmail:RedirectUri"];
 
             var tokenRequest = new Dictionary<string, string>
             {
