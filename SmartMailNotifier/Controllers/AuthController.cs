@@ -1,47 +1,87 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.EntityFrameworkCore;
+using SmartMailNotifier.Data;
 using SmartMailNotifier.DTOs;
+using SmartMailNotifier.Models;
+using SmartMailNotifier.Repository.Interfaces;
 using SmartMailNotifier.Services.Interfaces;
-using SmartMailNotifier.Services;
+using SmartMailNotifier.Helpers;
 
-namespace SmartMailNotifier.Controllers
+namespace SmartMailNotifier.Services
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class AuthController : ControllerBase
+    public class AuthService : IAuthService
     {
-        private readonly IAuthService _authService;
-            private readonly WhatsAppService whatsAppService;
-        public AuthController(IAuthService authService, WhatsAppService whatsAppService )
-        {
+        private readonly AppDbContext _context;
+        private readonly JwtHelper _jwtHelperInstance;
 
-            _authService = authService;
-            this.whatsAppService = whatsAppService;
+        public AuthService(AppDbContext context, JwtHelper jwtHelper)
+        {
+            _context = context;
+            _jwtHelperInstance = jwtHelper;
         }
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterDto registerDto)
+        // =========================
+        // ✅ REGISTER
+        // =========================
+        public async Task<bool> RegisterAsync(RegisterDto dto)
         {
-            var result = await _authService.RegisterAsync(registerDto);
-            if (result)
+            var email = dto.Email.Trim().ToLower();
+
+            // check if user exists
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == email);
+
+            if (existingUser != null)
+                return false;
+
+            var user = new User
             {
-                return Ok("Registration successful.");
+                Email = email,
+                Password = dto.Password // ⚠️ plain for now (you can hash later)
+            };
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            return true;
+        }
+
+        // =========================
+        // ✅ LOGIN (FIXED)
+        // =========================
+        public async Task<string?> LoginAsync(LoginDto dto)
+        {
+            try
+            {
+                var email = dto.Email.Trim().ToLower();
+                var password = dto.Password.Trim();
+
+                var user = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Email == email);
+
+                // 🔥 FIX 1: user null check
+                if (user == null)
+                {
+                    Console.WriteLine("User not found");
+                    return null;
+                }
+
+                // 🔥 FIX 2: password check
+                if (user.Password != password)
+                {
+                    Console.WriteLine("Password mismatch");
+                    return null;
+                }
+
+                // 🔥 FIX 3: generate JWT
+                var token = _jwtHelperInstance.GenerateToken(user);
+
+                return token;
             }
-            return BadRequest("Registration failed.");
-
-        }
-
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginDto loginDto)
-        {
-            var token = await _authService.LoginAsync(loginDto);
-
-            if (token == null)
-                return Unauthorized("Invalid email or password");
-
-            return Ok(new
+            catch (Exception ex)
             {
-                token = token
-            });
+                Console.WriteLine("LOGIN ERROR: " + ex.Message);
+                throw; // shows in Render logs
+            }
         }
     }
 }
