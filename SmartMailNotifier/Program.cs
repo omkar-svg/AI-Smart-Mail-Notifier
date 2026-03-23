@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using SmartMailNotifier.Data;
 using SmartMailNotifier.Helpers;
@@ -55,7 +56,7 @@ if (string.IsNullOrEmpty(connectionString))
 }
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 32))));
 
 // ✅ JWT CONFIG (SAFE + ENV SUPPORT)
 var jwtSection = builder.Configuration.GetSection("Jwt");
