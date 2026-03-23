@@ -11,5 +11,9 @@ namespace SmartMailNotifier.Services.Interfaces
         Task<List<Email>> GetEmailsByUserId(int userId);
         Task<Email?> GetEmailById(int emailId, int userId);
 
-       }
+        Task<bool> ActivateEmail(string email);
+        
+
+    }
+ 
 }

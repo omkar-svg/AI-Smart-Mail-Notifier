@@ -39,7 +39,11 @@ namespace SmartMailNotifier.Services
             return await _emailRepository.GetEmailById(emailId, userId);
 
         }
-      
+
+        public async Task<bool> ActivateEmail(string email)
+        {
+            return await _emailRepository.ActivateEmail(email);
+        }
 
         }
 }

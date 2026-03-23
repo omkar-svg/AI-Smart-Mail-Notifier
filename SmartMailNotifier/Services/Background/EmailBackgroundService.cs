@@ -64,9 +64,8 @@ namespace SmartMailNotifier.Services.Background
                 http.DefaultRequestHeaders.Authorization =
                     new AuthenticationHeaderValue("Bearer", accessToken);
 
-                // 🔥 ONLY unread inbox emails
                 var gmailResponse = await http.GetAsync(
-                "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox is:unread&maxResults=10");
+                    "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox is:unread&maxResults=10");
 
                 if (!gmailResponse.IsSuccessStatusCode) continue;
 
@@ -80,7 +79,6 @@ namespace SmartMailNotifier.Services.Background
                     var messageId = msg.GetProperty("id").GetString();
                     if (string.IsNullOrEmpty(messageId)) continue;
 
-                    // skip duplicate in DB
                     if (context.Emails.Any(e => e.MessageId == messageId))
                         continue;
 
@@ -111,15 +109,11 @@ namespace SmartMailNotifier.Services.Background
                             from = h.GetProperty("value").GetString() ?? "Unknown Sender";
                     }
 
-
+                    // 🔥 Check subject keywords
+                    bool isImportant = IsImportantSubject(subject);
 
                     // 🔥 AI summary
                     string summary = await aiService.GetSummary(subject, body);
-
-                    bool isImportant =
-                        subject.ToLower().Contains("job") ||
-                        subject.ToLower().Contains("interview") ||
-                        subject.ToLower().Contains("offer");
 
                     var email = new Email
                     {
@@ -138,7 +132,6 @@ namespace SmartMailNotifier.Services.Background
                         context.Emails.Add(email);
                         await context.SaveChangesAsync();
 
-                        // mark as read in gmail
                         await MarkEmailAsRead(http, messageId);
                     }
                     catch (DbUpdateException)
@@ -147,8 +140,8 @@ namespace SmartMailNotifier.Services.Background
                         continue;
                     }
 
-                    // 🔥 WhatsApp send
-                    if (!string.IsNullOrEmpty(gmail.User.WhatsappNumber))
+                    // 🔥 WhatsApp notification only if important
+                    if (isImportant && !string.IsNullOrEmpty(gmail.User.WhatsappNumber))
                     {
                         string phone = gmail.User.WhatsappNumber.Trim();
 
@@ -167,6 +160,40 @@ From: {from}
                     }
                 }
             }
+        }
+
+        // ================= IMPORTANT SUBJECT CHECK =================
+
+        private bool IsImportantSubject(string subject)
+        {
+            if (string.IsNullOrEmpty(subject))
+                return false;
+
+            string[] keywords =
+            {
+                "job",
+                "internship",
+                "interview",
+                "offer",
+                "hiring",
+                "placement",
+                "college",
+                "exam",
+                "fees",
+                "payment",
+                "invoice",
+                "transaction"
+            };
+
+            subject = subject.ToLower();
+
+            foreach (var word in keywords)
+            {
+                if (subject.Contains(word))
+                    return true;
+            }
+
+            return false;
         }
 
         // ================= BODY EXTRACTION =================

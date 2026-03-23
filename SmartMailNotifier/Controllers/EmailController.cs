@@ -56,6 +56,19 @@ namespace SmartMailNotifier.Controllers
             return Ok(email);
         }
 
-        
+        [HttpPut("emailactivation")]
+        public async Task<IActionResult> ActivationEmail(string email)
+        {
+            try
+            {
+                await _emailService.ActivateEmail(email);
+                return Ok("Email activation status toggled successfully");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest("Error toggling email activation: " + ex.Message);
+            }
+
+        }
     }
 }

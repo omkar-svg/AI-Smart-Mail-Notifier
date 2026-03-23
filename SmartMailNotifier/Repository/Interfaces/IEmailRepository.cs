@@ -10,6 +10,7 @@ namespace SmartMailNotifier.Repository.Interfaces
 
         public Task<Email?> GetEmailById(int emailId, int userId);
 
-        
+        public Task<bool> ActivateEmail(string email);
+
     }
 }
