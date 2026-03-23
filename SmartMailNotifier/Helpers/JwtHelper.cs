@@ -17,25 +17,47 @@ namespace SmartMailNotifier.Helpers
 
         public string GenerateToken(User user)
         {
-            var claims = new[]
+            // ✅ FIX: Read ENV first, fallback to appsettings
+            var key = Environment.GetEnvironmentVariable("JWT_KEY")
+                      ?? _config["Jwt:Key"];
+
+            var issuer = Environment.GetEnvironmentVariable("JWT_ISSUER")
+                         ?? _config["Jwt:Issuer"];
+
+            var audience = Environment.GetEnvironmentVariable("JWT_AUDIENCE")
+                           ?? _config["Jwt:Audience"];
+
+            if (string.IsNullOrEmpty(key))
+                throw new Exception("JWT_KEY is missing!");
+
+            var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim("username", user.Name)
+                new Claim(ClaimTypes.Email, user.Email)
             };
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            // ✅ FIX: Avoid null crash
+            if (!string.IsNullOrEmpty(user.Name))
+            {
+                claims.Add(new Claim("username", user.Name));
+            }
 
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var securityKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(key)
+            );
+
+            var creds = new SigningCredentials(
+                securityKey,
+                SecurityAlgorithms.HmacSha256
+            );
 
             var token = new JwtSecurityToken(
-                issuer: _config["Jwt:Issuer"],
-                audience: _config["Jwt:Audience"],
+                issuer: issuer,
+                audience: audience,
                 claims: claims,
-                expires: DateTime.Now.AddHours(2),
+                expires: DateTime.UtcNow.AddHours(2),
                 signingCredentials: creds
             );
 
