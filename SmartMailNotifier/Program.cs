@@ -47,20 +47,20 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 // =========================
-// ✅ DATABASE (FINAL FIX)
+// ✅ DATABASE (Railway)
 // =========================
-
 var dbUrl = Environment.GetEnvironmentVariable("MYSQL_PUBLIC_URL");
 
 if (string.IsNullOrEmpty(dbUrl))
 {
-    throw new Exception("MYSQL_PUBLIC_URL is missing in environment variables!");
+    throw new Exception("MYSQL_PUBLIC_URL is missing!");
 }
 
 var uri = new Uri(dbUrl);
 var userInfo = uri.UserInfo.Split(':');
 
-var connectionString = $"Server={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};User={userInfo[0]};Password={userInfo[1]};SslMode=Required;";
+var connectionString =
+    $"Server={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};User={userInfo[0]};Password={userInfo[1]};SslMode=Required;";
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 32)))
@@ -69,7 +69,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // =========================
 // ✅ JWT CONFIG
 // =========================
-
 var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER");
 var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE");
@@ -105,9 +104,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // =========================
-// ✅ CORS
+// ✅ CORS (FIXED)
 // =========================
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy =>
@@ -117,14 +115,14 @@ builder.Services.AddCors(options =>
             "https://smart-mail-assistant.netlify.app"
         )
         .AllowAnyHeader()
-        .AllowAnyMethod();
+        .AllowAnyMethod()
+        .AllowCredentials(); // 🔥 important
     });
 });
 
 // =========================
 // ✅ DEPENDENCIES
 // =========================
-
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<JwtHelper>();
@@ -139,9 +137,24 @@ builder.Services.AddScoped<SendEmailService>();
 var app = builder.Build();
 
 // =========================
-// ✅ SAFE MIGRATION
+// ✅ GLOBAL ERROR LOGGER (NEW)
 // =========================
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("🔥 GLOBAL ERROR: " + ex.Message);
+        throw;
+    }
+});
 
+// =========================
+// ✅ MIGRATIONS (SAFE)
+// =========================
 try
 {
     using (var scope = app.Services.CreateScope())
@@ -158,7 +171,6 @@ catch (Exception ex)
 // =========================
 // ✅ MIDDLEWARE
 // =========================
-
 app.UseSwagger();
 app.UseSwaggerUI();
 
@@ -177,7 +189,6 @@ app.MapControllers();
 // =========================
 // ✅ RENDER PORT FIX
 // =========================
-
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Urls.Add($"http://0.0.0.0:{port}");
 
