@@ -1,54 +1,87 @@
-﻿using SmartMailNotifier.DTOs;
-using SmartMailNotifier.Helpers;
+﻿using Microsoft.EntityFrameworkCore;
+using SmartMailNotifier.Data;
+using SmartMailNotifier.DTOs;
 using SmartMailNotifier.Models;
 using SmartMailNotifier.Repository.Interfaces;
 using SmartMailNotifier.Services.Interfaces;
+using SmartMailNotifier.Helpers;
 
 namespace SmartMailNotifier.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserRepository _userRepository;
-
+        private readonly AppDbContext _context;
         private readonly JwtHelper _jwtHelper;
 
-        public AuthService(IUserRepository userRepository, JwtHelper jwtHelper)
+        public AuthService(AppDbContext context, JwtHelper jwtHelper)
         {
-            _userRepository = userRepository;
+            _context = context;
             _jwtHelper = jwtHelper;
         }
 
-        public async Task<string?> LoginAsync(LoginDto loginDto)
+        // =========================
+        // ✅ REGISTER
+        // =========================
+        public async Task<bool> RegisterAsync(RegisterDto dto)
         {
-            Console.WriteLine("Email entered: " + loginDto.Email);
-            Console.WriteLine("Password entered: " + loginDto.Password);
-            var user = await _userRepository.GetUserByEmailAsync(loginDto.Email);
+            var email = dto.Email.Trim().ToLower();
 
-            if (user == null || user.Password != loginDto.Password)
+            // check if user exists
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == email);
+
+            if (existingUser != null)
+                return false;
+
+            var user = new User
             {
-                return null; // ✅ RETURN NULL NOT STRING
-            }
-
-            var token = _jwtHelper.GenerateToken(user);
-            return token;
-        }
-
-        public async Task<bool> RegisterAsync(RegisterDto registerDto)
-        {
-            // basic register flow - ensure email not taken
-            var existing = await _userRepository.GetUserByEmailAsync(registerDto.Email);
-            if (existing != null) return false;
-
-            var user = new Models.User
-            {
-                Name = registerDto.Name,
-                Email = registerDto.Email,
-                Password = (registerDto.Password),
-                WhatsappNumber = registerDto.WhatsappNumber
+                Email = email,
+                Password = dto.Password // ⚠️ plain for now (you can hash later)
             };
 
-            await _userRepository.AddUserAsync(user);
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
             return true;
+        }
+
+        // =========================
+        // ✅ LOGIN (FIXED)
+        // =========================
+        public async Task<string?> LoginAsync(LoginDto dto)
+        {
+            try
+            {
+                var email = dto.Email.Trim().ToLower();
+                var password = dto.Password.Trim();
+
+                var user = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Email == email);
+
+                // 🔥 FIX 1: user null check
+                if (user == null)
+                {
+                    Console.WriteLine("User not found");
+                    return null;
+                }
+
+                // 🔥 FIX 2: password check
+                if (user.Password != password)
+                {
+                    Console.WriteLine("Password mismatch");
+                    return null;
+                }
+
+                // 🔥 FIX 3: generate JWT
+                var token = _jwtHelper.GenerateToken(user);
+
+                return token;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("LOGIN ERROR: " + ex.Message);
+                throw; // shows in Render logs
+            }
         }
     }
 }
