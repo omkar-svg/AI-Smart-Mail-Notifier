@@ -39,7 +39,12 @@ namespace SmartMailNotifier.Controllers
         [HttpGet("connect")]
         public IActionResult Connect()
         {
-            int userId = 1; // temporary hardcoded user
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+            if (userIdClaim == null)
+                return Unauthorized("Invalid token");
+
+            int userId = int.Parse(userIdClaim.Value);
 
             var clientId = Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID");
             var redirectUri = Environment.GetEnvironmentVariable("GMAIL_REDIRECT_URI");
