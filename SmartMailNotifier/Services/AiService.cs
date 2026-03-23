@@ -30,9 +30,10 @@ namespace SmartMailNotifier.Services
 
             if (body.Length > 4000)
                 body = body.Substring(0, 4000);
-            
 
-            var apiKey = _config["Groq:ApiKey"];
+
+            var apiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY")
+               ?? _config["Groq:ApiKey"];
 
             try
             {
@@ -130,7 +131,8 @@ Summary:
                     Body = "Please provide details for the email."
                 };
 
-            var apiKey = _config["Groq:ApiKey"];
+            var apiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY")
+              ?? _config["Groq:ApiKey"];
 
             try
             {

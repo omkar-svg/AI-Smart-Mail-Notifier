@@ -21,13 +21,19 @@ namespace SmartMailNotifier.Services
         {
             using var http = new HttpClient();
 
+            var clientId = Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID")
+                 ?? _config["Gmail:ClientId"];
+
+            var clientSecret = Environment.GetEnvironmentVariable("GMAIL_CLIENT_SECRET")
+                               ?? _config["Gmail:ClientSecret"];
+
             var tokenRequest = new Dictionary<string, string>
-            {
-                { "client_id", _config["Gmail:ClientId"] },
-                { "client_secret", _config["Gmail:ClientSecret"] },
-                { "refresh_token", refreshToken },
-                { "grant_type", "refresh_token" }
-            };
+{
+    { "client_id", clientId },
+    { "client_secret", clientSecret },
+    { "refresh_token", refreshToken },
+    { "grant_type", "refresh_token" }
+};
 
             var response = await http.PostAsync(
                 "https://oauth2.googleapis.com/token",
