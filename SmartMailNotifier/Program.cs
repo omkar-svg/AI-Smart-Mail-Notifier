@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using SmartMailNotifier.Data;
 using SmartMailNotifier.Helpers;
@@ -46,33 +45,60 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// ✅ DATABASE CONFIG
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-                      ?? Environment.GetEnvironmentVariable("DB_CONNECTION");
+
+// =========================
+// ✅ DATABASE CONFIG (FINAL FIX)
+// =========================
+
+string connectionString = null;
+
+// 🔥 Priority 1: Railway MYSQL_PUBLIC_URL
+var dbUrl = Environment.GetEnvironmentVariable("MYSQL_PUBLIC_URL");
+
+if (!string.IsNullOrEmpty(dbUrl))
+{
+    var uri = new Uri(dbUrl);
+    var userInfo = uri.UserInfo.Split(':');
+
+    connectionString = $"Server={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};User={userInfo[0]};Password={userInfo[1]};SslMode=Required;";
+}
+
+// 🔥 Priority 2: Render DB_CONNECTION
+if (string.IsNullOrEmpty(connectionString))
+{
+    connectionString = Environment.GetEnvironmentVariable("DB_CONNECTION");
+}
+
+// 🔥 Fallback: appsettings.json
+if (string.IsNullOrEmpty(connectionString))
+{
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+}
 
 if (string.IsNullOrEmpty(connectionString))
 {
     throw new Exception("Database connection string is missing!");
 }
 
+// ✅ NO AutoDetect (prevents crash)
 builder.Services.AddDbContext<AppDbContext>(options =>
-options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 32))));
+    options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 32)))
+);
 
-// ✅ JWT CONFIG (SAFE + ENV SUPPORT)
+
+// =========================
+// ✅ JWT CONFIG
+// =========================
+
 var jwtSection = builder.Configuration.GetSection("Jwt");
 
-var jwtKey = jwtSection["Key"]
-          ?? Environment.GetEnvironmentVariable("JWT_KEY");
-
-var jwtIssuer = jwtSection["Issuer"]
-             ?? Environment.GetEnvironmentVariable("JWT_ISSUER");
-
-var jwtAudience = jwtSection["Audience"]
-               ?? Environment.GetEnvironmentVariable("JWT_AUDIENCE");
+var jwtKey = jwtSection["Key"] ?? Environment.GetEnvironmentVariable("JWT_KEY");
+var jwtIssuer = jwtSection["Issuer"] ?? Environment.GetEnvironmentVariable("JWT_ISSUER");
+var jwtAudience = jwtSection["Audience"] ?? Environment.GetEnvironmentVariable("JWT_AUDIENCE");
 
 if (string.IsNullOrEmpty(jwtKey))
 {
-    throw new Exception("JWT Key is missing from configuration!");
+    throw new Exception("JWT Key is missing!");
 }
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -100,22 +126,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// ✅ CORS (Frontend + Local)
+
+// =========================
+// ✅ CORS
+// =========================
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReact",
-        policy =>
-        {
-            policy.WithOrigins(
-                "http://localhost:5173",
-                "https://smart-mail-assistant.netlify.app"
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-        });
+    options.AddPolicy("AllowReact", policy =>
+    {
+        policy.WithOrigins(
+            "http://localhost:5173",
+            "https://smart-mail-assistant.netlify.app"
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod();
+    });
 });
 
+
+// =========================
 // ✅ DEPENDENCY INJECTION
+// =========================
+
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<JwtHelper>();
@@ -127,22 +160,39 @@ builder.Services.AddScoped<AiService>();
 builder.Services.AddScoped<WhatsAppService>();
 builder.Services.AddScoped<SendEmailService>();
 
+
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+
+// =========================
+// ✅ APPLY MIGRATIONS SAFELY
+// =========================
+
+try
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Database.Migrate();
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine("Migration failed: " + ex.Message);
 }
 
-// ✅ Avoid HTTPS redirect issues on Render
+
+// =========================
+// ✅ MIDDLEWARE
+// =========================
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
-
-app.UseSwagger();
-app.UseSwaggerUI();
 
 app.UseCors("AllowReact");
 
@@ -151,7 +201,11 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// ✅ Render PORT support
+
+// =========================
+// ✅ RENDER PORT FIX
+// =========================
+
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Urls.Add($"http://0.0.0.0:{port}");
 
