@@ -1,4 +1,5 @@
 ﻿using Google.Apis.Auth;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartMailNotifier.Data;
 using SmartMailNotifier.Models;
@@ -25,26 +26,26 @@ namespace SmartMailNotifier.Controllers
         // ================= GET USER FROM JWT =================
         private int? GetAuthenticatedUserId()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                              ?? User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-                              ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)
+                              ?? User.FindFirst(JwtRegisteredClaimNames.Sub)
+                              ?? User.FindFirst("sub");
 
-            if (int.TryParse(userIdClaim, out var id))
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var id))
                 return id;
 
             return null;
         }
 
         // ================= CONNECT GMAIL =================
+        // 🔐 MUST REQUIRE LOGIN
+        [Authorize]
         [HttpGet("connect")]
         public IActionResult Connect()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            var userId = GetAuthenticatedUserId();
 
-            if (userIdClaim == null)
+            if (userId == null)
                 return Unauthorized("Invalid token");
-
-            int userId = int.Parse(userIdClaim.Value);
 
             var clientId = Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID");
             var redirectUri = Environment.GetEnvironmentVariable("GMAIL_REDIRECT_URI");
@@ -66,6 +67,8 @@ namespace SmartMailNotifier.Controllers
         }
 
         // ================= CALLBACK =================
+        // 🌐 PUBLIC (Google will call this)
+        [AllowAnonymous]
         [HttpGet("callback")]
         public async Task<IActionResult> Callback(string code, string state)
         {
@@ -125,15 +128,13 @@ namespace SmartMailNotifier.Controllers
 
                 if (existing == null)
                 {
-                    var gmail = new GmailRefreshToken
+                    _context.GmailRefreshTokens.Add(new GmailRefreshToken
                     {
                         UserId = userId,
                         GmailAddress = gmailAddress,
                         RefreshToken = refreshToken,
                         IsActive = true
-                    };
-
-                    _context.GmailRefreshTokens.Add(gmail);
+                    });
                 }
                 else
                 {
@@ -196,7 +197,7 @@ namespace SmartMailNotifier.Controllers
                     subject.ToLower().Contains("offer")
                     ? "Yes" : "No";
 
-                var email = new Email
+                _context.Emails.Add(new Email
                 {
                     MessageId = messageId,
                     Subject = subject,
@@ -205,9 +206,7 @@ namespace SmartMailNotifier.Controllers
                     IsImportant = isImportant,
                     UserId = userId,
                     GmailAddress = gmailAddress
-                };
-
-                _context.Emails.Add(email);
+                });
             }
 
             await _context.SaveChangesAsync();
